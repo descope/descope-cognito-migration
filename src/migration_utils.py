@@ -7,6 +7,7 @@ import time
 import descope
 import boto3
 from botocore.exceptions import NoCredentialsError, ClientError
+import bcrypt
 
 DESCOPE_API_URL = "https://api.descope.com"
 
@@ -265,6 +266,9 @@ def create_descope_user(user):
             else:
                 loginId = identity["connection"] + "-" + identity["user_id"]
 
+            random_password = os.urandom(16)  # Generate a 16-byte random password
+            hashed_password, salt = generate_hashed_password(random_password)
+
             payload_data = {
                 "loginId": loginId,
                 "displayName": user.get("name"),
@@ -275,12 +279,16 @@ def create_descope_user(user):
                     "connection": identity.get("connection"),
                     "freshlyMigrated": True,
                 },
+                "hashedPassword": {
+                    "algorithm": "bcrypt",
+                    "hash": hashed_password.decode(),
+                    "salt": salt.decode(),
+                    "iterations": bcrypt.gensalt().rounds,
+                },
             }
 
             # Add email and verifiedEmail only if email is present and not empty
-            if user.get(
-                "email"
-            ):  # This will be False if email is None or an empty string
+            if user.get("email"):
                 payload_data["email"] = user["email"]
                 payload_data["verifiedEmail"] = user.get("email_verified", False)
 
@@ -372,6 +380,12 @@ def add_user_to_descope_role(user, role):
 
 
 ### Begin Process Functions
+
+
+def generate_hashed_password(password):
+    salt = bcrypt.gensalt()
+    hashed = bcrypt.hashpw(password.encode(), salt)
+    return hashed, salt
 
 
 def process_users(api_response_users, schema_attributes, dry_run):
