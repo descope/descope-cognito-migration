@@ -1,4 +1,4 @@
-<img width="1400" alt="Descope Cognito Migration Tool" src="https://github.com/descope/descope-Cognito-migration/assets/32936811/992ee6e4-682c-4659-b333-f1d32c16258f">
+<img width="1400" alt="Descope Cognito Migration Tool" src="https://github.com/descope/descope-cognito-migration/assets/32936811/bce6bb67-db8e-4282-adf4-1260e52a58b6">
 
 # Descope Cognito User Migration Tool
 
@@ -45,13 +45,13 @@ a. **Access Key ID and Secret Access Key**: Obtain your Access Key ID and Secret
 
 Both can be found after an Access Key is created:
 
-<img width="500" alt="AWS Access Key ID" src="https://github.com/descope/descope-Cognito-migration/assets/32936811/992ee6e4-682c-4659-b333-f1d32c16258f">
+<img width="800" alt="AWS Access Key ID" src="https://github.com/descope/descope-cognito-migration/assets/32936811/0d016ed7-75eb-449a-b8d3-90ff066053e2">
 
 > **Note:** The Secret Access Key itself will be permanently hidden once first generated.
 
 b. **Cognito User Pool ID**: This can be found in the AWS Cognito console.
 
-<img width="500" alt="AWS User Pool ID" src="https://github.com/descope/descope-Cognito-migration/assets/32936811/992ee6e4-682c-4659-b333-f1d32c16258f">
+<img width="1500" alt="AWS User Pool ID" src="https://github.com/descope/descope-cognito-migration/assets/32936811/80738fd5-b279-4416-a97a-87e136a306e5">
 
 c. **Descope Project ID and Management Key**: Obtain these from your Descope account under [Project Settings](https://app.descope.com/settings/project) and [Management Keys](https://app.descope.com/settings/company/managementkeys).
 
