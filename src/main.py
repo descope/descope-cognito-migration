@@ -6,6 +6,7 @@ from migration_utils import (
     process_users,
     fetch_cognito_user_groups,
     process_user_groups,
+    get_cognito_user_pool_schema,
 )
 
 logging.basicConfig(
@@ -24,9 +25,11 @@ def main():
     args = parser.parse_args()
     dry_run = args.dry_run
 
+    schema_attributes = get_cognito_user_pool_schema()
+
     # Fetch and Create Users from Cognito
     cognito_users = fetch_cognito_users()
-    process_users(cognito_users, dry_run)
+    process_users(cognito_users, schema_attributes, dry_run)
 
     # Fetch and Process User Groups (Roles) from Cognito
     cognito_groups = fetch_cognito_user_groups()

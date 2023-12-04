@@ -6,6 +6,7 @@ import logging
 import time
 import descope
 import boto3
+from botocore.exceptions import NoCredentialsError, ClientError
 
 DESCOPE_API_URL = "https://api.descope.com"
 
@@ -76,6 +77,23 @@ def api_request_with_retry(action, url, headers, data=None, max_retries=4, timeo
 
     logging.error("Max retries reached. Giving up.")
     return None
+
+
+def get_cognito_user_pool_schema():
+    try:
+        client = boto3.client("cognito-idp", region_name=COGNITO_REGION)
+        response = client.describe_user_pool(UserPoolId=COGNITO_USER_POOL_ID)
+
+        if "UserPool" in response:
+            return response["UserPool"].get("SchemaAttributes", [])
+        else:
+            return []
+    except NoCredentialsError:
+        print("Credentials not available")
+        return []
+    except ClientError as e:
+        print(f"An error occurred: {e}")
+        return []
 
 
 def fetch_cognito_users():
@@ -356,39 +374,55 @@ def add_user_to_descope_role(user, role):
 ### Begin Process Functions
 
 
-def process_users(api_response_users, dry_run):
+def process_users(api_response_users, schema_attributes, dry_run):
     """
-    Process the list of users from Cognito by mapping and creating them in Descope.
+    Process the list of users from Cognito by dynamically mapping and creating them in Descope
+    based on the user pool schema.
 
     Args:
     - api_response_users (list): A list of users fetched from Cognito API.
+    - schema_attributes (list): Schema attributes from Cognito user pool.
+    - dry_run (bool): Flag for dry run mode.
     """
-    for user in api_response_users:
-        # Extracting email, phone number and custom attribute from Cognito user
-        email, phone_number, custom_attribute = None, None, None
-        for attribute in user.get("Attributes", []):
-            if attribute["Name"] == "email":
-                email = attribute["Value"]
-            elif attribute["Name"] == "phone_number":
-                phone_number = attribute["Value"]
-            elif (
-                attribute["Name"] == "custom:customAttribute"
-            ):  # Adjust the custom attribute name
-                custom_attribute = attribute["Value"]
+    schema_attr_names = {attr["Name"] for attr in schema_attributes}
 
-        # Map Cognito user attributes to Descope user attributes
+    for user in api_response_users:
         descope_user_data = {
-            "loginId": user.get("Username"),  # Using Username as the login ID
-            "email": email,
-            "phone": phone_number,
-            "customAttributes": {
-                # Adjust as needed
-                # "customAttribute": custom_attribute
-            },
+            "loginId": user.get("Username"),
+            "customAttributes": {},
+            "test": False,
         }
 
+        # Extract the 'sub' attribute (unique identifier in Cognito)
+        cognito_user_id = next(
+            (
+                attr["Value"]
+                for attr in user.get("Attributes", [])
+                if attr["Name"] == "sub"
+            ),
+            None,
+        )
+        if cognito_user_id:
+            descope_user_data["customAttributes"]["cognitoUserId"] = cognito_user_id
+
+        # Dynamically set other attributes based on the Cognito schema
+        for attribute in user.get("Attributes", []):
+            attr_name = attribute["Name"]
+            attr_value = attribute["Value"]
+
+            if attr_name in schema_attr_names:
+                if attr_name in ["email", "phone_number"]:
+                    descope_user_data[attr_name] = attr_value
+                elif attr_name in ["email_verified", "phone_number_verified"]:
+                    descope_user_data[attr_name] = attr_value == "true"
+                elif attr_name != "sub":
+                    # Handle other custom attributes
+                    descope_user_data["customAttributes"][attr_name] = attr_value
+
         if dry_run:
-            logging.info(f"Dry run: Would create user {descope_user_data['loginId']}")
+            logging.info(
+                f"Dry run: Would create user {descope_user_data['loginId']} with Cognito User ID {cognito_user_id}"
+            )
             continue
 
         # Make a POST request to Descope API to create the user
@@ -402,7 +436,7 @@ def process_users(api_response_users, dry_run):
 
         if response.status_code == 200:
             logging.info(
-                f"User {descope_user_data['loginId']} successfully created in Descope"
+                f"User {descope_user_data['loginId']} successfully created in Descope with Cognito User ID {cognito_user_id}"
             )
         else:
             logging.error(
@@ -430,7 +464,7 @@ def process_user_groups(cognito_groups, dry_run):
 
         # Make a POST request to Descope API to create the role
         response = requests.post(
-            f"{DESCOPE_API_URL}/v1/mgmt/role/create",  # Update with the correct endpoint
+            f"{DESCOPE_API_URL}/v1/mgmt/role/create",
             json=descope_role_data,
             headers={
                 "Authorization": f"Bearer {os.getenv('DESCOPE_PROJECT_ID')}:{os.getenv('DESCOPE_MANAGEMENT_KEY')}"
@@ -465,29 +499,25 @@ def associate_users_with_role_in_descope(users, role_name):
     - role_name (string): The name of the role in Descope.
     """
     for user in users:
-        # Assuming user is a dictionary with user details from Cognito
-        descope_user_identifier = user.get("Username")  # Or any other unique identifier
+        descope_login_id = user.get("Username")
 
-        # Prepare the payload for the Descope API to associate user with the role
-        data = {
-            "email": descope_user_identifier,  # Adjust based on Descope's API requirements
-            "role": role_name,
-        }
+        data = {"loginId": descope_login_id, "roleNames": [role_name]}
 
-        # Make the API call
         response = requests.post(
-            f"{DESCOPE_API_URL}/assign-role",  # Update with the correct endpoint
+            f"{DESCOPE_API_URL}/v1/mgmt/user/update/role/add",
             json=data,
-            headers={"Authorization": f"Bearer {os.getenv('DESCOPE_MANAGEMENT_KEY')}"},
+            headers={
+                "Authorization": f"Bearer {os.getenv('DESCOPE_PROJECT_ID')}:{os.getenv('DESCOPE_MANAGEMENT_KEY')}"
+            },
         )
 
         if response.status_code == 200:
             logging.info(
-                f"User {descope_user_identifier} successfully associated with role {role_name}"
+                f"User {descope_login_id} successfully associated with role {role_name}"
             )
         else:
             logging.error(
-                f"Failed to associate user {descope_user_identifier} with role {role_name}: {response.text}"
+                f"Failed to associate user {descope_login_id} with role {role_name}: {response.text}"
             )
 
 
