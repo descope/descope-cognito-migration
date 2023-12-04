@@ -1,46 +1,42 @@
 import unittest
-from unittest.mock import mock_open, patch, Mock
-from src.migration_utils import read_auth0_export, fetch_auth0_users
+from unittest.mock import patch, MagicMock
+from src.migration_utils import (
+    fetch_cognito_users,
+    fetch_cognito_user_groups,
+    api_request_with_retry,
+)
 
 
 class TestMigration(unittest.TestCase):
-    def test_read_auth0_export(self):
-        mock_data = """{"_id": {"$oid": "1234"}, "email": "test1@email.com"}
-{"_id": {"$oid": "5678"}, "email": "test2@email.com"}"""
+    @patch("src.migration_utils.boto3.client")
+    @patch("src.migration_utils.time.sleep", return_value=None)
+    def test_fetch_cognito_users(self, mock_sleep, mock_boto_client):
+        mock_cognito_client = MagicMock()
+        mock_cognito_client.list_users.side_effect = [
+            {"Users": [{"Username": "user1"}], "PaginationToken": "token"},
+            {"Users": [{"Username": "user2"}]},
+        ]
+        mock_boto_client.return_value = mock_cognito_client
 
-        # Use mock_open to mock file reading
-        with patch("builtins.open", mock_open(read_data=mock_data)):
-            users = read_auth0_export("mock_path")
-
+        users = fetch_cognito_users()
         self.assertEqual(len(users), 2)
-        self.assertEqual(users[0]["_id"]["$oid"], "1234")
-        self.assertEqual(users[1]["email"], "test2@email.com")
+        self.assertEqual(users[0]["Username"], "user1")
+        self.assertEqual(users[1]["Username"], "user2")
 
-    @patch("requests.get")
-    def test_fetch_auth0_users_success(self, mock_get):
-        # Mock successful response
-        mock_resp = Mock()
-        mock_resp.status_code = 200
-        mock_resp.json = Mock(
-            return_value=[{"user_id": "auth0|1234", "email": "test1@email.com"}]
-        )
-        mock_get.return_value = mock_resp
+    @patch("src.migration_utils.boto3.client")
+    @patch("src.migration_utils.time.sleep", return_value=None)
+    def test_fetch_cognito_user_groups(self, mock_sleep, mock_boto_client):
+        mock_cognito_client = MagicMock()
+        mock_cognito_client.list_groups.side_effect = [
+            {"Groups": [{"GroupName": "group1"}], "NextToken": "token"},
+            {"Groups": [{"GroupName": "group2"}]},
+        ]
+        mock_boto_client.return_value = mock_cognito_client
 
-        users = fetch_auth0_users()
-
-        self.assertEqual(len(users), 1)
-        self.assertEqual(users[0]["email"], "test1@email.com")
-
-    @patch("requests.get")
-    def test_fetch_auth0_users_failure(self, mock_get):
-        # Mock failed response
-        mock_resp = Mock()
-        mock_resp.status_code = 400
-        mock_get.return_value = mock_resp
-
-        users = fetch_auth0_users()
-
-        self.assertEqual(len(users), 0)
+        groups = fetch_cognito_user_groups()
+        self.assertEqual(len(groups), 2)
+        self.assertEqual(groups[0]["GroupName"], "group1")
+        self.assertEqual(groups[1]["GroupName"], "group2")
 
 
 if __name__ == "__main__":

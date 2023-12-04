@@ -6,6 +6,8 @@ This repository includes a Python utility for migrating your Cognito users to De
 
 > **Note**: Cognito does not support the export of hashed passwords, therefore you'll need to create temporary passwords for these users and they will have to be reset by each individual user when they sign in with Descope for the first time.
 
+This tool will be able to get the current user pool configuration schema from the AWS SDK, using the given environment variables. You may need to alter the implementation with roles/tenants, and various role permissions.
+
 ## Setup 💿
 
 1. Clone the Repo:
@@ -65,7 +67,10 @@ The output will include the responses of the created users within Descope:
 
 ```
 User successfully created
-{"user":{"loginIds":["app@example.com"], "userId":"U2UTvKxVuf4xYe68xYBK2FtFEuTK", "name":"app@example.com", "email":"app@example.com", "phone":"", "verifiedEmail":false, "verifiedPhone":false, "roleNames":[], "userTenants":[], "status":"invited", "externalIds":["app@example.com"], "picture":"", "test":false, "customAttributes":{"CognitoUserId":"64de73a2b160e31c8c3579b7"}, "createdTime":1692976324, "TOTP":false, "SAML":false, "OAuth":{}}}
+2023-12-04 13:10:48,735 - INFO - Found credentials in environment variables.
+2023-12-04 13:10:49,766 - INFO - User gaokevin successfully created in Descope with Cognito User ID 3c50e5ad-c340-4b48-945a-3cda903c2ca1
+2023-12-04 13:10:50,830 - INFO - User gaokevin successfully associated with role TestGroup
+2023-12-04 13:10:50,832 - INFO - Migration process completed.
 ...
 ```
 
