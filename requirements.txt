@@ -1,0 +1,5 @@
+requests
+python-dotenv
+descope
+boto3
+bcrypt
