@@ -4,9 +4,9 @@
 
 This repository includes a Python utility for migrating your Cognito users to Descope.
 
-> **Note**: Cognito does not support the export of hashed passwords, therefore you'll need to create temporary passwords for these users and they will have to be reset by each individual user when they sign in with Descope for the first time.
+This tool will automatically fetch Cognito user groups and custom attributes defined in your user pool with the `boto3` client SDK. Roles in Descope will be created corresponding to the name of a Cognito user group, and all users that are assigned to a specific user group, will also be created in Descope and assigned to that new role as well. Users will also have all of their custom attributes in Descope, as they currently do in Cognito.
 
-This tool will be able to get the current user pool configuration schema from the AWS SDK, using the given environment variables. You may need to alter the implementation with roles/tenants, and various role permissions.
+> ⚠️ **Note**: Cognito does not support the export of hashed passwords, therefore you'll need to create temporary passwords for these users and they will have to be reset by each individual user when they sign in with Descope for the first time.
 
 ## Setup 💿
 
@@ -56,6 +56,8 @@ b. **Cognito User Pool ID**: This can be found in the AWS Cognito console.
 c. **Descope Project ID and Management Key**: Obtain these from your Descope account under [Project Settings](https://app.descope.com/settings/project) and [Management Keys](https://app.descope.com/settings/company/managementkeys).
 
 ## Running the Migration Script 🚀
+
+> ⚠️ **Note**: Make sure that you've created all of your custom attributes manually in the [Descope Console](https://app.descope.com/users/attributes), otherwise custom attributes will not be transferred over from Cognito. The tool should ask you this question before running the migration.
 
 To migrate your Cognito users, execute the script with the path to the password hash export file:
 
