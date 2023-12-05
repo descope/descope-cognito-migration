@@ -38,7 +38,7 @@ AWS_ACCESS_KEY_ID="<Your AWS Access Key>"
 AWS_SECRET_ACCESS_KEY="<Your AWS SECRET ACCESS KEY>"
 COGNITO_USER_POOL_ID="<YOUR USER POOL ID>"
 DESCOPE_PROJECT_ID="<Your Descope Project ID>"
-DESCOPE_MANAGEMENT_KEY="Your Descope Management Key>"
+DESCOPE_MANAGEMENT_KEY="<Your Descope Management Key>"
 ```
 
 a. **Access Key ID and Secret Access Key**: Obtain your Access Key ID and Secret Access Key by following the steps outlined on the [AWS Guide](https://aws.amazon.com/blogs/security/wheres-my-secret-access-key/) and update your `.env` file.
