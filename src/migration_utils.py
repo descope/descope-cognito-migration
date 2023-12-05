@@ -268,7 +268,6 @@ def create_descope_user(user):
 
             random_password = os.urandom(16)  # Generate a 16-byte random password
             hashed_password, salt = generate_hashed_password(random_password)
-
             payload_data = {
                 "loginId": loginId,
                 "displayName": user.get("name"),
@@ -279,6 +278,7 @@ def create_descope_user(user):
                     "connection": identity.get("connection"),
                     "freshlyMigrated": True,
                 },
+                "additionalIdentifiers": [user.get("email")],
                 "hashedPassword": {
                     "algorithm": "bcrypt",
                     "hash": hashed_password.decode(),
