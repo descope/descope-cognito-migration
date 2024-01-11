@@ -28,6 +28,19 @@ def main():
     if args.dry_run:
         dry_run = True
 
+    response = (
+        input(
+            "Have you already created custom attributes in Descope that match your Cognito user pool? (yes/no): "
+        )
+        .strip()
+        .lower()
+    )
+    if response not in ["yes", "y"]:
+        print(
+            "Please ensure that your Descope custom attributes match your Cognito user pool before proceeding."
+        )
+        return
+
     schema_attributes = get_cognito_user_pool_schema()
 
     # Fetch and Create Users from Cognito
