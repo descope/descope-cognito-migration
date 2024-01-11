@@ -4,10 +4,10 @@ import requests
 from dotenv import load_dotenv
 import logging
 import time
-import descope
 import boto3
 from botocore.exceptions import NoCredentialsError, ClientError
 import bcrypt
+from descope import DescopeClient
 
 DESCOPE_API_URL = "https://api.descope.com"
 
@@ -24,60 +24,10 @@ COGNITO_REGION = os.getenv("COGNITO_REGION")
 DESCOPE_PROJECT_ID = os.getenv("DESCOPE_PROJECT_ID")
 DESCOPE_MANAGEMENT_KEY = os.getenv("DESCOPE_MANAGEMENT_KEY")
 
-
-def api_request_with_retry(action, url, headers, data=None, max_retries=4, timeout=10):
-    """
-    Handles API requests with additional retry on timeout and rate limit.
-
-    Args:
-    - action (string): 'get' or 'post'
-    - url (string): The URL of the path for the api request
-    - headers (dict): Headers to be sent with the request
-    - data (json): Optional and used only for post, but the payload to post
-    - max_retries (int): The max number of retries
-    - timeout (int): The timeout for the request in seconds
-    Returns:
-    - API Response
-    - Or None
-    """
-    retries = 0
-    while retries < max_retries:
-        try:
-            if action == "get":
-                response = requests.get(url, headers=headers, timeout=timeout)
-            else:
-                response = requests.post(
-                    url, headers=headers, data=data, timeout=timeout
-                )
-
-            if (
-                response.status_code != 429
-            ):  # Not a rate limit error, proceed with response
-                return response
-
-            # If rate limit error, prepare for retry
-            retries += 1
-            wait_time = 5**retries
-            logging.info(f"Rate limit reached. Retrying in {wait_time} seconds...")
-            time.sleep(wait_time)
-
-        except requests.exceptions.ReadTimeout as e:
-            # Handle read timeout exception
-            logging.warning(f"Read timed out. (read timeout={timeout}): {e}")
-            retries += 1
-            wait_time = 5**retries
-            logging.info(f"Retrying attempt {retries}/{max_retries}...")
-            time.sleep(
-                wait_time
-            )  # Wait for 5 seconds before retrying or use a backoff strategy
-
-        except requests.exceptions.RequestException as e:
-            # Handle other request exceptions
-            logging.error(f"A request exception occurred: {e}")
-            break  # In case of other exceptions, you may want to break the loop
-
-    logging.error("Max retries reached. Giving up.")
-    return None
+# Initialize the Descope client
+descope_client = DescopeClient(
+    project_id=DESCOPE_PROJECT_ID, management_key=DESCOPE_MANAGEMENT_KEY
+)
 
 
 def get_cognito_user_pool_schema():
@@ -197,188 +147,6 @@ def get_users_in_group(group_name):
     return all_users
 
 
-def create_descope_role_and_permissions(role, permissions):
-    """
-    Create a Descope role and it's associated permissions based on matched Cognito.
-
-    Args:
-    - role (dict): A dictionary containing role details from the Cognito.
-    - permissions (dict): A dictionary containing permissions details from the Cognito.
-    """
-    permissionNames = []
-    for permission in permissions:
-        permissionNames.append(permission["permission_name"])
-        payload_data = {
-            "name": permission["permission_name"],
-            "description": permission["description"],
-        }
-        payload = json.dumps(payload_data)
-        url = "https://api.descope.com/v1/mgmt/permission/create"
-        headers = {
-            "Authorization": f"Bearer {DESCOPE_PROJECT_ID}:{DESCOPE_MANAGEMENT_KEY}",
-            "Content-Type": "application/json",
-        }
-        response = api_request_with_retry("post", url, headers=headers, data=payload)
-        if response.status_code != 200:
-            logging.error(
-                f"Unable to create permission.  Status code: {response.status_code}"
-            )
-        else:
-            logging.info("Permission successfully created")
-            logging.info(response.text)
-
-    payload_data = {
-        "name": role["name"],
-        "description": role["description"],
-        "permissionNames": permissionNames,
-    }
-    payload = json.dumps(payload_data)
-    url = "https://api.descope.com/v1/mgmt/role/create"
-    headers = {
-        "Authorization": f"Bearer {DESCOPE_PROJECT_ID}:{DESCOPE_MANAGEMENT_KEY}",
-        "Content-Type": "application/json",
-    }
-    response = api_request_with_retry("post", url, headers=headers, data=payload)
-    if response.status_code != 200:
-        logging.error(f"Unable to create role.  Status code: {response.status_code}")
-    else:
-        logging.info("Role successfully created")
-        logging.info(response.text)
-
-
-def create_descope_user(user):
-    """
-    Create a Descope user based on matched Cognito user data.
-
-    Args:
-    - user (dict): A dictionary containing user details fetched from Cognito SDK.
-    """
-    try:
-        for identity in user.get("identities", []):
-            if "Username" in identity["connection"]:
-                loginId = user.get("email")
-            elif "sms" in identity["connection"]:
-                loginId = user.get("phone_number")
-            elif "-" in identity["connection"]:
-                loginId = (
-                    identity["connection"].split("-")[0] + "-" + identity["user_id"]
-                )
-            else:
-                loginId = identity["connection"] + "-" + identity["user_id"]
-
-            random_password = os.urandom(16)  # Generate a 16-byte random password
-            hashed_password, salt = generate_hashed_password(random_password)
-            payload_data = {
-                "loginId": loginId,
-                "displayName": user.get("name"),
-                "invite": False,
-                "test": False,
-                "picture": user.get("picture"),
-                "customAttributes": {
-                    "connection": identity.get("connection"),
-                    "freshlyMigrated": True,
-                },
-                "additionalIdentifiers": [user.get("email")],
-                "hashedPassword": {
-                    "algorithm": "bcrypt",
-                    "hash": hashed_password.decode(),
-                    "salt": salt.decode(),
-                    "iterations": bcrypt.gensalt().rounds,
-                },
-            }
-
-            # Add email and verifiedEmail only if email is present and not empty
-            if user.get("email"):
-                payload_data["email"] = user["email"]
-                payload_data["verifiedEmail"] = user.get("email_verified", False)
-
-            if identity.get("provider") == "sms":
-                payload_data.update(
-                    {
-                        "phone": user.get("phone_number"),
-                        "verifiedPhone": user.get("phone_verified", False),
-                    }
-                )
-
-            # Check if the user is blocked and set status accordingly
-            status = "disabled" if user.get("blocked", False) else "enabled"
-
-            # Prepare API call to create or update the user
-            payload = json.dumps(payload_data)
-            headers = {
-                "Authorization": f"Bearer {DESCOPE_PROJECT_ID}:{DESCOPE_MANAGEMENT_KEY}",
-                "Content-Type": "application/json",
-            }
-
-            # Create or update user profile
-            success = create_or_update_user(payload, headers)
-            if success == True:
-                # Update user status
-                success = update_user_status(loginId, status, headers)
-            else:
-                logging.warning(f"User failed to create {user}")
-
-    except Exception as e:
-        logging.warning(f"User failed to create {user}")
-        logging.warning(e)
-
-
-def create_or_update_user(payload, headers):
-    url = "https://api.descope.com/v1/mgmt/user/create"
-    response = api_request_with_retry("post", url, headers=headers, data=payload)
-    if response.status_code != 200:
-        logging.error(
-            f"Unable to create or update user. Status code: {response.status_code}"
-        )
-        return False
-    else:
-        logging.info("User successfully created or updated")
-        return True
-
-
-def update_user_status(loginId, status, headers):
-    active_inactive_payload = {"loginId": loginId, "status": status}
-    payload = json.dumps(active_inactive_payload)
-    url = "https://api.descope.com/v1/mgmt/user/update/status"
-    response = api_request_with_retry("post", url, headers=headers, data=payload)
-    if response.status_code != 200:
-        logging.error(f"Failed to set user status. Status code: {response.status_code}")
-        return False
-    else:
-        logging.info("Successfully set user status")
-        return True
-
-
-def add_user_to_descope_role(user, role):
-    """
-    Add a Descope user based on matched Auth0 user data.
-
-    Args:
-    - user (string): Login ID of the user you wish to add to role
-    - role (string): The name of the role which you want to add the user to
-    """
-    payload_data = {"loginId": user, "roleNames": [role]}
-    payload = json.dumps(payload_data)
-
-    # Endpoint
-    url = "https://api.descope.com/v1/mgmt/user/create"
-
-    # Headers
-    headers = {
-        "Authorization": f"Bearer {DESCOPE_PROJECT_ID}:{DESCOPE_MANAGEMENT_KEY}",
-        "Content-Type": "application/json",
-    }
-    # Make the POST request
-    response = api_request_with_retry("post", url, headers=headers, data=payload)
-    if response.status_code != 200:
-        logging.error(
-            f"Unable to add role to user.  Status code: {response.status_code}"
-        )
-    else:
-        logging.info("User role successfully added")
-        logging.info(response.text)
-
-
 ### Begin Process Functions
 
 
@@ -401,12 +169,6 @@ def process_users(api_response_users, schema_attributes, dry_run):
     schema_attr_names = {attr["Name"] for attr in schema_attributes}
 
     for user in api_response_users:
-        descope_user_data = {
-            "loginId": user.get("Username"),
-            "customAttributes": {},
-            "test": False,
-        }
-
         # Extract the 'sub' attribute (unique identifier in Cognito)
         cognito_user_id = next(
             (
@@ -416,8 +178,17 @@ def process_users(api_response_users, schema_attributes, dry_run):
             ),
             None,
         )
-        if cognito_user_id:
-            descope_user_data["customAttributes"]["cognitoUserId"] = cognito_user_id
+
+        # Cognito username
+        username = user.get("Username")
+
+        descope_user_data = {
+            "loginId": None,
+            "customAttributes": {"username": username, "sub": cognito_user_id}
+            if cognito_user_id and username
+            else {},
+            "test": False,
+        }
 
         # Dynamically set other attributes based on the Cognito schema
         for attribute in user.get("Attributes", []):
@@ -425,7 +196,10 @@ def process_users(api_response_users, schema_attributes, dry_run):
             attr_value = attribute["Value"]
 
             if attr_name in schema_attr_names:
-                if attr_name in ["email", "phone_number"]:
+                if attr_name == "email":
+                    descope_user_data["loginId"] = attr_value
+                    descope_user_data[attr_name] = attr_value
+                if attr_name in ["phone_number"]:
                     descope_user_data[attr_name] = attr_value
                 elif attr_name in ["email_verified", "phone_number_verified"]:
                     descope_user_data[attr_name] = attr_value == "true"
@@ -435,27 +209,28 @@ def process_users(api_response_users, schema_attributes, dry_run):
 
         if dry_run:
             logging.info(
-                f"Dry run: Would create user {descope_user_data['loginId']} with Cognito User ID {cognito_user_id}"
+                f"Dry run: Would create user {username} with Cognito User ID {cognito_user_id}"
             )
             continue
 
-        # Make a POST request to Descope API to create the user
-        response = requests.post(
-            f"{DESCOPE_API_URL}/v1/mgmt/user/create",
-            json=descope_user_data,
-            headers={
-                "Authorization": f"Bearer {os.getenv('DESCOPE_PROJECT_ID')}:{os.getenv('DESCOPE_MANAGEMENT_KEY')}"
-            },
-        )
+        user_email = descope_user_data["email"]
 
-        if response.status_code == 200:
-            logging.info(
-                f"User {descope_user_data['loginId']} successfully created in Descope with Cognito User ID {cognito_user_id}"
+        try:
+            # Add additional attributes if necessary
+            descope_client.mgmt.user.create(
+                login_id=descope_user_data["loginId"],
+                email=descope_user_data["email"],
+                phone=descope_user_data.get("phone_number"),
+                custom_attributes=descope_user_data["customAttributes"],
+                verified_email=descope_user_data.get("email_verified"),
+                verified_phone=descope_user_data.get("phone_number_verified"),
             )
-        else:
-            logging.error(
-                f"Failed to create user {descope_user_data['loginId']}: {response.text}"
-            )
+
+            descope_client.mgmt.user.activate(login_id=descope_user_data["loginId"])
+
+            logging.info(f"User {user_email} successfully created in Descope")
+        except Exception as e:
+            logging.error(f"Failed to create user {user_email}: {str(e)}")
 
 
 def process_user_groups(cognito_groups, dry_run):
@@ -476,23 +251,11 @@ def process_user_groups(cognito_groups, dry_run):
             logging.info(f"Dry run: Would create role {descope_role_data['name']}")
             continue
 
-        # Make a POST request to Descope API to create the role
-        response = requests.post(
-            f"{DESCOPE_API_URL}/v1/mgmt/role/create",
-            json=descope_role_data,
-            headers={
-                "Authorization": f"Bearer {os.getenv('DESCOPE_PROJECT_ID')}:{os.getenv('DESCOPE_MANAGEMENT_KEY')}"
-            },
-        )
-
-        if response.status_code == 200:
-            logging.info(
-                f"Role {descope_role_data['name']} successfully created in Descope"
-            )
-        else:
-            logging.error(
-                f"Failed to create role {descope_role_data['name']}: {response.text}"
-            )
+        try:
+            descope_client.mgmt.role.create(name=group_name)
+            logging.info(f"Role {group_name} successfully created in Descope")
+        except Exception as e:
+            logging.error(f"Failed to create role {group_name}: {str(e)}")
 
         # Fetch users in this group from Cognito
         cognito_users_in_group = get_users_in_group(group_name)
@@ -513,25 +276,21 @@ def associate_users_with_role_in_descope(users, role_name):
     - role_name (string): The name of the role in Descope.
     """
     for user in users:
-        descope_login_id = user.get("Username")
-
-        data = {"loginId": descope_login_id, "roleNames": [role_name]}
-
-        response = requests.post(
-            f"{DESCOPE_API_URL}/v1/mgmt/user/update/role/add",
-            json=data,
-            headers={
-                "Authorization": f"Bearer {os.getenv('DESCOPE_PROJECT_ID')}:{os.getenv('DESCOPE_MANAGEMENT_KEY')}"
-            },
+        descope_login_id = next(
+            (attr["Value"] for attr in user["Attributes"] if attr["Name"] == "email"),
+            None,
         )
 
-        if response.status_code == 200:
+        try:
+            descope_client.mgmt.user.add_roles(
+                login_id=descope_login_id, role_names=[role_name]
+            )
             logging.info(
                 f"User {descope_login_id} successfully associated with role {role_name}"
             )
-        else:
+        except Exception as e:
             logging.error(
-                f"Failed to associate user {descope_login_id} with role {role_name}: {response.text}"
+                f"Failed to associate user {descope_login_id} with role {role_name}: {str(e)}"
             )
 
 

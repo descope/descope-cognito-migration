@@ -23,7 +23,10 @@ def main():
     )
     parser.add_argument("--dry-run", action="store_true", help="Enable dry run mode")
     args = parser.parse_args()
-    dry_run = args.dry_run
+    dry_run = False
+
+    if args.dry_run:
+        dry_run = True
 
     response = (
         input(
@@ -42,13 +45,15 @@ def main():
 
     # Fetch and Create Users from Cognito
     cognito_users = fetch_cognito_users()
-    process_users(cognito_users, schema_attributes, dry_run)
 
     # Fetch and Process User Groups (Roles) from Cognito
     cognito_groups = fetch_cognito_user_groups()
-    process_user_groups(cognito_groups, dry_run)
 
     logging.info("Migration process completed.")
+
+    if dry_run == False:
+        process_users(cognito_users, schema_attributes, dry_run)
+        process_user_groups(cognito_groups, dry_run)
 
 
 if __name__ == "__main__":
