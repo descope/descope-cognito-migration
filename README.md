@@ -26,7 +26,7 @@ source venv/bin/activate
 3. Install the Necessary Python libraries
 
 ```
-pip3 install -r requirements.txt
+python3 -m pip install .
 ```
 
 4. Setup Your Environment Variables
