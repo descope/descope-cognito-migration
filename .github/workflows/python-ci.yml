@@ -15,7 +15,7 @@ jobs:
         python-version: [3.8]
 
     steps:
-      - uses: actions/checkout@v2 # Checks-out your repository
+      - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3.6.0 # Checks-out your repository
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v2
         with:
