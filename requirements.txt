@@ -3,3 +3,4 @@ python-dotenv
 descope
 boto3
 bcrypt
+urllib3>=2.6.3 # not directly required, pinned by Snyk to avoid a vulnerability
